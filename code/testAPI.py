@@ -306,6 +306,117 @@ class GetAllDocuments(Resource):
             else:
                 return jsonify({'error': f'{e}'})
             
+class GetAllFiles(Resource):
+    def get(self):
+        try:
+            llm_helper = LLMHelper()
+            data = llm_helper.blob_client.get_all_files()
+            if len(data) == 0:
+                return jsonify({"data": data, "message":"No files found."})
+            else:
+                return jsonify({"data": data})
+        except Exception as e:
+            if isinstance(e, ResponseError):
+                return jsonify({"message": "No embeddings found."})
+            else:
+                return jsonify({'error': f'{e}'})
+            
+def delete_embeddings_of_file(file_to_delete):
+    llm_helper = LLMHelper()
+    embeddings = llm_helper.get_all_documents(k=1000)
+    if embeddings.shape[0] == 0:
+        return
+    
+    for converted_file_extension in ['.txt']:
+        file_to_delete = 'converted/' + file_to_delete + converted_file_extension
+        embeddings_to_delete = embeddings[embeddings['filename'] == file_to_delete]['key'].tolist()
+        embeddings_to_delete = list(map(lambda x: f"{x}", embeddings_to_delete))
+        if len(embeddings_to_delete) > 0:
+            llm_helper.vector_store.delete_keys(embeddings_to_delete)
+            
+def delete_file_and_embeddings(filename=''):
+    llm_helper = LLMHelper()
+    files = llm_helper.blob_client.get_all_files()
+
+    file_dict = next((d for d in files if d['filename'] == filename), None)
+
+    if len(file_dict) > 0:
+        source_file = file_dict['filename']
+        try:
+            llm_helper.blob_client.delete_file(source_file)
+        except Exception as e:
+            return f"Error deleting file: {source_file} - {e}"
+        
+        if file_dict['converted']:
+            converted_file = 'converted/' + file_dict['filename'] + '.txt'
+            try:
+                llm_helper.blob_client.delete_file(converted_file)
+            except Exception as e:
+                return f"Error deleting file : {converted_file} - {e}"
+        
+        if file_dict['embeddings_added']:
+            delete_embeddings_of_file(parse.quote(filename))
+            
+class DeleteFileAndEmbeddings(Resource):
+    def post(self):
+        llm_helper = LLMHelper()
+        data = request.get_json()
+        if "deleteAll" in data and data["deleteAll"] == True:
+            try:
+                files_list = llm_helper.blob_client.get_all_files()
+                for filename_dict in files_list:
+                    delete_file_and_embeddings(filename_dict['filename'])
+            except Exception as e:
+                return jsonify({'error': f"{e}"})
+        else:
+            try:
+                delete_file_and_embeddings(data['filename'])
+                return jsonify({'message': f'{data["filename"]} deleted'})
+            except Exception as e:
+                return jsonify({'error': f"{e}"})
+            
+class SandboxCompletion(Resource):
+    def post(self):
+        llm_helper = LLMHelper()
+        data = request.get_json()
+        try:
+            response = llm_helper.get_completion(data['customPrompt'], max_tokens=500)
+            return jsonify({'response': response.encode().decode()})
+        except Exception as e:
+            return jsonify({'error': f"{e}"})
+
+class DocumentSummary(Resource):
+    def post(self):
+        llm_helper = LLMHelper()
+        data = request.get_json()
+        try:
+            text = data['text']
+            if text is None or text == '':
+                text='{}'
+            summary_type = data['summaryType']
+            prompt = ''
+            if summary_type == 'basic':
+                prompt = "Summarize the following text:\n\n{}\n\nSummary:".format(text)
+            elif summary_type == 'bullet_points':
+                prompt = "Summarize the following text into bullet points:\n\n{}\n\nSummary:".format(text)
+            elif summary_type == 'second_grader':
+                prompt = prompt = "Explain the following text to a second grader:\n\n{}\n\nSummary:".format(text)
+            response = llm_helper.get_completion(prompt)
+            return jsonify({'response': response})
+        except Exception as e:
+            return jsonify({'error': f"{e}"})
+        
+class ConversationExtraction(Resource):
+    def post(self):
+        llm_helper = LLMHelper()
+        data = request.get_json()
+        
+        try:
+            response = llm_helper.get_completion("{}".format(data['customPrompt']))
+            response = response.encode().decode()
+            return jsonify({'response': response})
+        except Exception as e:
+            return jsonify({'error': f"{e}"})
 
 
 # adding the defined resources along with their corresponding urls 
@@ -313,14 +424,23 @@ api.add_resource(Hello, '/')
 api.add_resource(CheckDeployment, '/check-deployment')
 api.add_resource(GetLanguages, '/get-languages')
 api.add_resource(Query, '/query')
+
 api.add_resource(Chat, '/chat')
+
 api.add_resource(AddDocument, '/add-document')
 api.add_resource(GetEmbeddingsModel, '/get-model')
 api.add_resource(AddText, '/add-text')
 api.add_resource(AddBatch, '/add-batch')
 api.add_resource(ConvertAndAddEmbeddings, '/convert')
 api.add_resource(AddUrls, '/add-urls')
+
 api.add_resource(GetAllDocuments, '/get-documents')
+api.add_resource(GetAllFiles, '/get-files')
+api.add_resource(DeleteFileAndEmbeddings, '/delete-file')
+api.add_resource(SandboxCompletion, '/submit-custom-prompt')
+api.add_resource(DocumentSummary, '/get-summary')
+api.add_resource(ConversationExtraction, '/conversation')
+
 
 
 # driver function 

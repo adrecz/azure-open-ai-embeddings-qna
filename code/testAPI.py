@@ -13,6 +13,7 @@ import uuid
 import regex as re
 from redis.exceptions import ResponseError 
 from urllib import parse
+from flask_cors import CORS
 
 
 import logging
@@ -25,7 +26,9 @@ from flask_restful import Resource, Api, reqparse
 # creating the flask app 
 app = Flask(__name__) 
 # creating an API object 
+CORS(app, origins=["http://localhost:3000/*"])
 api = Api(app) 
+
 
 parser = reqparse.RequestParser()
 
@@ -131,6 +134,7 @@ class Query(Resource):
             answer, followUps = llm_helper.extract_followupquestions(response)
             res["answer"] = answer
             res["followup_questions"] = followUps
+            res["context"] = context
             if sources:
                 response, sourceList, matchedSourceList, linkList, fileNames = llm_helper.get_links_filenames(response, sources)
                 res["sourceList"] = sourceList
@@ -206,6 +210,7 @@ class AddDocument(Resource):
             res = {}
             llm_helper = LLMHelper()
             uploaded_file = request.files['file']
+            shouldTranslate = request.headers.get('x-translate')
             if uploaded_file is not None:
                 bytes_data = uploaded_file.read()
                 content_type = mimetypes.MimeTypes().guess_type(uploaded_file.filename)[0]
@@ -218,10 +223,10 @@ class AddDocument(Resource):
 
                 else:
                     # Get OCR with Layout API and then add embeddigns
-                    converted_filename = llm_helper.convert_file_and_add_embeddings(fileUrl, uploaded_file.filename, False)
+                    converted_filename = llm_helper.convert_file_and_add_embeddings(fileUrl, uploaded_file.filename, shouldTranslate)
                 
-                llm_helper.blob_client.upsert_blob_metadata(uploaded_file.name, {'converted': 'true', 'embeddings_added': 'true', 'converted_filename': parse.quote(converted_filename)})
-                return jsonify({f"File {uploaded_file.filename} embeddings added to the knowledge base."})
+                llm_helper.blob_client.upsert_blob_metadata(uploaded_file.filename, {'converted': 'true', 'embeddings_added': 'true', 'converted_filename': parse.quote(converted_filename)})
+                return jsonify({"message": f"File {uploaded_file.filename} embeddings added to the knowledge base."})
         except Exception as e:
             return jsonify({'error': f'{e}'})
         
@@ -294,11 +299,12 @@ class GetAllDocuments(Resource):
         try:
             llm_helper = LLMHelper()
             data = llm_helper.get_all_documents(k=1000)
+            json_list = data.to_json(orient="records")
             if len(data) == 0:
-                data = data.to_json()
+                data = data.to_json(orient='records')
                 return jsonify({"data": data, "message":"No embeddings found."})
             else:
-                data = data.to_json()
+                data = data.to_json(orient='records')
                 return jsonify({"data": data})
         except Exception as e:
             if isinstance(e, ResponseError):
@@ -366,6 +372,7 @@ class DeleteFileAndEmbeddings(Resource):
                 files_list = llm_helper.blob_client.get_all_files()
                 for filename_dict in files_list:
                     delete_file_and_embeddings(filename_dict['filename'])
+                return jsonify({'message': 'All files successfully deleted'})
             except Exception as e:
                 return jsonify({'error': f"{e}"})
         else:
@@ -417,7 +424,18 @@ class ConversationExtraction(Resource):
             return jsonify({'response': response})
         except Exception as e:
             return jsonify({'error': f"{e}"})
+        
+class DeleteEmbeddings(Resource):
+    def post(self):
+        llm_helper = LLMHelper()
+        data = request.get_json()
 
+        try:
+            response = llm_helper.vector_store.delete_keys(data['embeddingsToDelete'])
+            return jsonify({'response': 'Embedding(s) deleted successfully'})
+        except Exception as e:
+            return jsonify({'error': f"{e}"})
+        
 
 # adding the defined resources along with their corresponding urls 
 api.add_resource(Hello, '/') 
@@ -440,6 +458,8 @@ api.add_resource(DeleteFileAndEmbeddings, '/delete-file')
 api.add_resource(SandboxCompletion, '/submit-custom-prompt')
 api.add_resource(DocumentSummary, '/get-summary')
 api.add_resource(ConversationExtraction, '/conversation')
+
+api.add_resource(DeleteEmbeddings, '/delete-embeddings')
 
 
 

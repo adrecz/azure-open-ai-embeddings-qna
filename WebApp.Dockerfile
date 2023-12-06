@@ -4,5 +4,5 @@ COPY ./code/requirements.txt /usr/local/src/myscripts/requirements.txt
 WORKDIR /usr/local/src/myscripts
 RUN pip install -r requirements.txt
 COPY ./code/ /usr/local/src/myscripts
-EXPOSE 80
+EXPOSE 8080
 CMD ["python", "testAPI.py"]

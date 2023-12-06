@@ -1,9 +1,9 @@
 version: "3.9"
 services:
   web:
-    image: fruocco/oai-embeddings
+    image: adrecz/oai-api:latest
     ports:
-      - "8080:80"
+      - "8080:8080"
     env_file:
       - .env
     depends_on:

@@ -24,5 +24,6 @@ Flask-Cors==4.0.0
 Flask-RESTful==0.3.10
 urllib3==1.26.18
 regex==2023.10.3
+waitress==2.1.2
 --extra-index-url https://pkgs.dev.azure.com/azure-sdk/public/_packaging/azure-sdk-for-python/pypi/simple/
 azure-search-documents==11.4.0a20230509004
